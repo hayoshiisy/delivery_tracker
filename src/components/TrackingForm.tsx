@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { TrackingFormData } from '../types/api';
 import CarrierSelect from './CarrierSelect';
 import type { Carrier } from '../types/api';
@@ -80,14 +80,29 @@ const TrackingForm: React.FC<TrackingFormProps> = ({
 
   const isFormValid = formData.carrierId && formData.trackingNumber.trim();
 
-  // 테스트용 더미 운송장 번호 제안 (실제 API 형식)
-  const getDummyTrackingNumber = () => {
-    const now = new Date();
-    const utc = new Date(now.getTime() + (now.getTimezoneOffset() * 60000));
-    const hour = Math.floor(utc.getHours() / 3) * 3;
-    const dummyDate = new Date(utc.getFullYear(), utc.getMonth(), utc.getDate(), hour);
-    return dummyDate.toISOString().slice(0, 19).toLowerCase() + 'z';
-  };
+  // 자동으로 테스트 운송장 번호 생성 (테스트 택배사 선택시)
+  useEffect(() => {
+    if (formData.carrierId === 'dev.track.dummy') {
+      const getTestTrackingNumbers = () => {
+        const now = new Date();
+        const numbers = [];
+        
+        // 현재 시간 기준으로 여러 테스트 번호 생성
+        for (let i = 0; i < 3; i++) {
+          const testDate = new Date(now.getTime() - (i * 3 * 60 * 60 * 1000)); // 3시간씩 뒤로
+          const utc = new Date(testDate.getTime() + (testDate.getTimezoneOffset() * 60000));
+          const hour = Math.floor(utc.getHours() / 3) * 3;
+          const dummyDate = new Date(utc.getFullYear(), utc.getMonth(), utc.getDate(), hour);
+          numbers.push(dummyDate.toISOString().slice(0, 19).toLowerCase() + 'z');
+        }
+        
+        return numbers;
+      };
+
+      const testNumbers = getTestTrackingNumbers();
+      setFormData(prev => ({ ...prev, trackingNumber: testNumbers[0] }));
+    }
+  }, [formData.carrierId]);
 
   // 여러 테스트 운송장 번호 생성
   const getTestTrackingNumbers = () => {
@@ -175,7 +190,7 @@ const TrackingForm: React.FC<TrackingFormProps> = ({
               🧪 테스트 택배사 더미 데이터:
             </div>
             
-            {getTestTrackingNumbers().map((number, index) => (
+            {getTestTrackingNumbers().map((number) => (
               <div key={number} style={{ marginBottom: '6px' }}>
                 <span style={{ 
                   fontFamily: 'monospace', 

@@ -130,11 +130,6 @@ const CarrierSelect: React.FC<CarrierSelectProps> = ({
     borderBottom: '1px solid #f1f5f9'
   };
 
-  const optionHoverStyle: React.CSSProperties = {
-    ...optionStyle,
-    backgroundColor: '#f8fafc'
-  };
-
   return (
     <div style={containerStyle} ref={dropdownRef}>
       <label style={labelStyle}>
