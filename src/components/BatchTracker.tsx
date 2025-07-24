@@ -1,0 +1,562 @@
+import React, { useState, useRef } from 'react';
+import type { Carrier } from '../types/api';
+
+interface BatchTrackingItem {
+  id: string;
+  carrierId: string;
+  carrierName: string;
+  trackingNumber: string;
+  status: 'pending' | 'loading' | 'success' | 'error';
+  result?: any;
+  error?: string;
+}
+
+interface BatchTrackerProps {
+  carriers: Carrier[];
+  onClose: () => void;
+}
+
+const BatchTracker: React.FC<BatchTrackerProps> = ({ carriers, onClose }) => {
+  const [items, setItems] = useState<BatchTrackingItem[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 택배사 목록 (테스트 택배사 포함)
+  const allCarriers: Carrier[] = [
+    {
+      id: 'dev.track.dummy',
+      name: 'Test Carrier',
+      displayName: '🧪 테스트 택배사',
+      isEnabled: true
+    },
+    ...carriers.filter(carrier => carrier.isEnabled)
+  ];
+
+  // 택배사명 매핑 함수
+  const findCarrierByName = (carrierInput: string): Carrier | undefined => {
+    const input = carrierInput.toLowerCase().trim();
+    
+    // 먼저 정확한 ID로 찾기
+    let carrier = allCarriers.find(c => c.id.toLowerCase() === input);
+    if (carrier) return carrier;
+    
+    // 택배사명 매핑 테이블
+    const nameMapping: { [key: string]: string } = {
+      'cj대한통운': 'kr.cjlogistics',
+      'cj': 'kr.cjlogistics',
+      '씨제이': 'kr.cjlogistics',
+      '대한통운': 'kr.cjlogistics',
+      '한진택배': 'kr.hanjin',
+      '한진': 'kr.hanjin',
+      'hanjin': 'kr.hanjin',
+      '롯데택배': 'kr.lotte',
+      '롯데': 'kr.lotte',
+      'lotte': 'kr.lotte',
+      '우체국택배': 'kr.epost',
+      '우체국': 'kr.epost',
+      'epost': 'kr.epost',
+      '로젠택배': 'kr.logen',
+      '로젠': 'kr.logen',
+      'logen': 'kr.logen',
+      '경동택배': 'kr.kdexp',
+      '경동': 'kr.kdexp',
+      'kdexp': 'kr.kdexp',
+      '테스트택배사': 'dev.track.dummy',
+      '테스트': 'dev.track.dummy',
+      'test': 'dev.track.dummy'
+    };
+    
+    // 매핑 테이블에서 찾기
+    const carrierId = nameMapping[input];
+    if (carrierId) {
+      return allCarriers.find(c => c.id === carrierId);
+    }
+    
+    // 부분 일치로 찾기
+    for (const [key, id] of Object.entries(nameMapping)) {
+      if (input.includes(key) || key.includes(input)) {
+        return allCarriers.find(c => c.id === id);
+      }
+    }
+    
+    return undefined;
+  };
+
+  // CSV 파싱 함수
+  const parseCSV = (csvText: string): BatchTrackingItem[] => {
+    const lines = csvText.trim().split('\n');
+    const items: BatchTrackingItem[] = [];
+    
+    // 헤더 라인 건너뛰기
+    const dataLines = lines.slice(1);
+    
+    dataLines.forEach((line, index) => {
+      const [carrierInput, trackingNumber] = line.split(',').map(item => item.trim());
+      
+      if (carrierInput && trackingNumber) {
+        const carrier = findCarrierByName(carrierInput);
+        if (carrier) {
+          items.push({
+            id: `item-${index}`,
+            carrierId: carrier.id,
+            carrierName: carrier.displayName || carrier.name,
+            trackingNumber,
+            status: 'pending'
+          });
+        }
+      }
+    });
+    
+    return items;
+  };
+
+  // 파일 처리 함수
+  const handleFile = (file: File) => {
+    if (!file.name.endsWith('.csv')) {
+      alert('CSV 파일만 업로드할 수 있습니다.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const csvText = e.target?.result as string;
+        const parsedItems = parseCSV(csvText);
+        
+        if (parsedItems.length === 0) {
+          alert('유효한 데이터가 없습니다. CSV 형식을 확인해주세요.');
+          return;
+        }
+        
+        setItems(parsedItems);
+      } catch (error) {
+        alert('CSV 파일을 읽는 중 오류가 발생했습니다.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // 드래그 앤 드롭 핸들러
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      handleFile(files[0]);
+    }
+  };
+
+  // 파일 선택 핸들러
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      handleFile(files[0]);
+    }
+  };
+
+  // 개별 운송장 조회 함수
+  const trackSingleItem = async (item: BatchTrackingItem): Promise<BatchTrackingItem> => {
+    try {
+      if (item.carrierId === 'dev.track.dummy') {
+        // 테스트 택배사 더미 데이터
+        await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+        
+        const isDelivered = Math.random() > 0.5;
+        return {
+          ...item,
+          status: 'success',
+          result: {
+            trackingNumber: item.trackingNumber,
+            carrier: { name: item.carrierName },
+            lastEvent: {
+              status: { name: isDelivered ? '배송완료' : '배송중' },
+              description: isDelivered ? '배송이 완료되었습니다' : '배송 중입니다',
+              location: { name: isDelivered ? '고객님 댁' : '서울시 강남구' }
+            }
+          }
+        };
+      }
+
+      // 실제 API 호출
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          carrierId: item.carrierId,
+          trackingNumber: item.trackingNumber
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.track) {
+          return {
+            ...item,
+            status: 'success',
+            result: data.track
+          };
+        }
+      }
+
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'API 호출 실패');
+      
+    } catch (error) {
+      return {
+        ...item,
+        status: 'error',
+        error: (error as Error).message
+      };
+    }
+  };
+
+  // 일괄 조회 시작
+  const startBatchTracking = async () => {
+    if (items.length === 0) return;
+    
+    setIsProcessing(true);
+    setProgress(0);
+    
+    // 모든 아이템을 loading 상태로 변경
+    setItems(prev => prev.map(item => ({ ...item, status: 'loading' as const })));
+    
+    // API 제한 준수: 초당 10개 제한을 고려하여 안전하게 3개씩 처리
+    const batchSize = 3; // 초당 10개 제한을 고려한 안전한 배치 크기
+    const delayBetweenBatches = 1000; // 1초 대기 (API 제한 준수)
+    
+    const batches = [];
+    for (let i = 0; i < items.length; i += batchSize) {
+      batches.push(items.slice(i, i + batchSize));
+    }
+    
+    let completedCount = 0;
+    
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      
+      // API 호출
+      const promises = batch.map(item => trackSingleItem(item));
+      const results = await Promise.all(promises);
+      
+      // 결과 업데이트
+      setItems(prev => {
+        const newItems = [...prev];
+        results.forEach(result => {
+          const index = newItems.findIndex(item => item.id === result.id);
+          if (index !== -1) {
+            newItems[index] = result;
+          }
+        });
+        return newItems;
+      });
+      
+      completedCount += batch.length;
+      setProgress((completedCount / items.length) * 100);
+      
+      // 마지막 배치가 아니면 1초 대기 (API 제한 준수)
+      if (batchIndex < batches.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
+      }
+    }
+    
+    setIsProcessing(false);
+  };
+
+  // CSV 다운로드
+  const downloadResults = () => {
+    const csvContent = [
+      ['택배사', '운송장번호', '상태', '최종상태', '위치', '에러메시지'],
+      ...items.map(item => [
+        item.carrierName,
+        item.trackingNumber,
+        item.status === 'success' ? '성공' : item.status === 'error' ? '실패' : '처리중',
+        item.result?.lastEvent?.status?.name || '',
+        item.result?.lastEvent?.location?.name || '',
+        item.error || ''
+      ])
+    ].map(row => row.join(',')).join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `택배조회결과_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.click();
+  };
+
+  const modalStyle: React.CSSProperties = {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    padding: '1rem'
+  };
+
+  const containerStyle: React.CSSProperties = {
+    backgroundColor: '#fff',
+    borderRadius: '12px',
+    padding: '2rem',
+    maxWidth: '800px',
+    width: '100%',
+    maxHeight: '90vh',
+    overflow: 'auto'
+  };
+
+  const uploadAreaStyle: React.CSSProperties = {
+    border: `3px dashed ${isDragging ? '#3498db' : '#e1e5e9'}`,
+    borderRadius: '12px',
+    padding: '3rem 2rem',
+    textAlign: 'center',
+    backgroundColor: isDragging ? '#f0f9ff' : '#f8fafc',
+    marginBottom: '2rem',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  };
+
+  const buttonStyle: React.CSSProperties = {
+    padding: '10px 20px',
+    borderRadius: '8px',
+    border: 'none',
+    cursor: 'pointer',
+    fontWeight: '600',
+    marginRight: '10px',
+    marginBottom: '10px'
+  };
+
+  const primaryButtonStyle: React.CSSProperties = {
+    ...buttonStyle,
+    backgroundColor: '#3498db',
+    color: '#fff'
+  };
+
+  const secondaryButtonStyle: React.CSSProperties = {
+    ...buttonStyle,
+    backgroundColor: '#6b7280',
+    color: '#fff'
+  };
+
+  const successButtonStyle: React.CSSProperties = {
+    ...buttonStyle,
+    backgroundColor: '#10b981',
+    color: '#fff'
+  };
+
+  return (
+    <div style={modalStyle} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={containerStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+          <h2 style={{ margin: 0, color: '#1f2937' }}>📊 일괄 택배 조회</h2>
+          <button onClick={onClose} style={{ ...secondaryButtonStyle, marginRight: 0 }}>
+            ✕ 닫기
+          </button>
+        </div>
+
+        {items.length === 0 ? (
+          <>
+            <div
+              style={uploadAreaStyle}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📁</div>
+              <h3 style={{ margin: '0 0 1rem 0', color: '#374151' }}>
+                CSV 파일을 드래그하거나 클릭하여 업로드
+              </h3>
+              <p style={{ margin: 0, color: '#6b7280' }}>
+                파일 형식: 택배사,운송장번호
+              </p>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleFileSelect}
+              style={{ display: 'none' }}
+            />
+
+            <div style={{ 
+              backgroundColor: '#f0f9ff', 
+              border: '1px solid #0ea5e9',
+              borderRadius: '8px',
+              padding: '1rem',
+              marginBottom: '1rem'
+            }}>
+              <h4 style={{ margin: '0 0 0.5rem 0', color: '#0c4a6e' }}>📋 CSV 파일 형식 예시:</h4>
+              <pre style={{ 
+                backgroundColor: '#fff',
+                padding: '0.5rem',
+                borderRadius: '4px',
+                margin: '0 0 0.5rem 0',
+                fontSize: '12px',
+                color: '#374151'
+              }}>
+{`택배사,운송장번호
+CJ대한통운,1234567890
+한진택배,9876543210
+테스트택배사,test123`}
+              </pre>
+              <div style={{ fontSize: '11px', color: '#0c4a6e', fontWeight: '600' }}>
+                💡 권장: 30개 이하 (빠른 처리), 100개 이하 (일반), 300개 이하 (대용량) - 처리시간: 30개≈10초, 100개≈33초, 300개≈100초
+              </div>
+            </div>
+
+            <div style={{ 
+              backgroundColor: '#fef3c7',
+              border: '1px solid #f59e0b',
+              borderRadius: '8px',
+              padding: '1rem'
+            }}>
+              <h4 style={{ margin: '0 0 0.5rem 0', color: '#92400e' }}>💡 지원하는 택배사 (코드 또는 한글명 모두 사용 가능):</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem' }}>
+                {allCarriers.map(carrier => (
+                  <div key={carrier.id} style={{ fontSize: '12px', color: '#78350f' }}>
+                    <code style={{ backgroundColor: '#fff', padding: '2px 4px', borderRadius: '2px' }}>
+                      {carrier.id}
+                    </code> - {carrier.displayName || carrier.name}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span>📦 총 {items.length}건</span>
+              <span style={{ fontSize: '12px', color: '#6b7280' }}>
+                ⏱️ 예상 소요시간: 약 {Math.ceil(items.length / 3)}초 (API 제한 준수)
+              </span>
+              
+              {!isProcessing && (
+                <>
+                  <button onClick={startBatchTracking} style={primaryButtonStyle}>
+                    🚀 일괄 조회 시작
+                  </button>
+                  <button onClick={() => setItems([])} style={secondaryButtonStyle}>
+                    🗑️ 목록 지우기
+                  </button>
+                </>
+              )}
+              
+              {items.some(item => item.status === 'success' || item.status === 'error') && (
+                <button onClick={downloadResults} style={successButtonStyle}>
+                  💾 결과 다운로드
+                </button>
+              )}
+            </div>
+
+            {/* API 제한 안내 */}
+            <div style={{ 
+              backgroundColor: '#fef3c7',
+              border: '1px solid #f59e0b',
+              borderRadius: '8px',
+              padding: '0.75rem',
+              marginBottom: '1rem',
+              fontSize: '12px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                <span>⚡</span>
+                <strong style={{ color: '#92400e' }}>API 제한 준수 모드</strong>
+              </div>
+              <div style={{ color: '#78350f', lineHeight: '1.4' }}>
+                Delivery Tracker API는 초당 10개 호출 제한이 있어 안전하게 3개씩 처리합니다. 
+                대량 조회시 시간이 소요될 수 있습니다.
+              </div>
+            </div>
+
+            {isProcessing && (
+              <div style={{ marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                  <span>진행률: {Math.round(progress)}%</span>
+                  <span>{Math.round(progress * items.length / 100)}/{items.length} 완료</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '12px', color: '#6b7280' }}>
+                  <span>⏳ API 제한 준수로 안전하게 처리 중...</span>
+                  <span>
+                    남은 시간: 약 {Math.max(0, Math.ceil((items.length - Math.round(progress * items.length / 100)) / 3))}초
+                  </span>
+                </div>
+                <div style={{ 
+                  width: '100%', 
+                  height: '8px', 
+                  backgroundColor: '#e5e7eb', 
+                  borderRadius: '4px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    width: `${progress}%`,
+                    height: '100%',
+                    backgroundColor: '#3498db',
+                    transition: 'width 0.3s ease'
+                  }} />
+                </div>
+              </div>
+            )}
+
+            <div style={{ maxHeight: '400px', overflow: 'auto' }}>
+              {items.map(item => (
+                <div key={item.id} style={{
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  padding: '1rem',
+                  marginBottom: '0.5rem',
+                  backgroundColor: item.status === 'success' ? '#f0fdf4' : 
+                                 item.status === 'error' ? '#fef2f2' : 
+                                 item.status === 'loading' ? '#fefce8' : '#fff'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <strong>{item.carrierName}</strong> - {item.trackingNumber}
+                    </div>
+                    <div>
+                      {item.status === 'pending' && '⏳ 대기중'}
+                      {item.status === 'loading' && '🔄 조회중...'}
+                      {item.status === 'success' && '✅ 성공'}
+                      {item.status === 'error' && '❌ 실패'}
+                    </div>
+                  </div>
+                  
+                  {item.result && (
+                    <div style={{ marginTop: '0.5rem', fontSize: '12px', color: '#6b7280' }}>
+                      상태: {item.result.lastEvent?.status?.name} | 
+                      위치: {item.result.lastEvent?.location?.name}
+                    </div>
+                  )}
+                  
+                  {item.error && (
+                    <div style={{ marginTop: '0.5rem', fontSize: '12px', color: '#dc2626' }}>
+                      오류: {item.error}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default BatchTracker; 

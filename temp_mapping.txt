@@ -1,0 +1,49 @@
+  // 택배사명 매핑 함수
+  const findCarrierByName = (carrierInput: string): Carrier | undefined => {
+    const input = carrierInput.toLowerCase().trim();
+    
+    // 먼저 정확한 ID로 찾기
+    let carrier = allCarriers.find(c => c.id.toLowerCase() === input);
+    if (carrier) return carrier;
+    
+    // 택배사명 매핑 테이블
+    const nameMapping: { [key: string]: string } = {
+      'cj대한통운': 'kr.cjlogistics',
+      'cj': 'kr.cjlogistics',
+      '씨제이': 'kr.cjlogistics',
+      '대한통운': 'kr.cjlogistics',
+      '한진택배': 'kr.hanjin',
+      '한진': 'kr.hanjin',
+      'hanjin': 'kr.hanjin',
+      '롯데택배': 'kr.lotte',
+      '롯데': 'kr.lotte',
+      'lotte': 'kr.lotte',
+      '우체국택배': 'kr.epost',
+      '우체국': 'kr.epost',
+      'epost': 'kr.epost',
+      '로젠택배': 'kr.logen',
+      '로젠': 'kr.logen',
+      'logen': 'kr.logen',
+      '경동택배': 'kr.kdexp',
+      '경동': 'kr.kdexp',
+      'kdexp': 'kr.kdexp',
+      '테스트택배사': 'dev.track.dummy',
+      '테스트': 'dev.track.dummy',
+      'test': 'dev.track.dummy'
+    };
+    
+    // 매핑 테이블에서 찾기
+    const carrierId = nameMapping[input];
+    if (carrierId) {
+      return allCarriers.find(c => c.id === carrierId);
+    }
+    
+    // 부분 일치로 찾기
+    for (const [key, id] of Object.entries(nameMapping)) {
+      if (input.includes(key) || key.includes(input)) {
+        return allCarriers.find(c => c.id === id);
+      }
+    }
+    
+    return undefined;
+  };
