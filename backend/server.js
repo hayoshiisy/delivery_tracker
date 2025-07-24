@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3001;
 // CORS 설정 - 프로덕션 환경 고려
 const allowedOrigins = [
   'http://localhost:2000',
-  'https://your-vercel-domain.vercel.app', // Vercel 도메인으로 변경 필요
+  'https://delivery-tracker-beta.vercel.app', // 실제 Vercel 도메인
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
